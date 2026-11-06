@@ -1,0 +1,24 @@
+name: Get Commit Hashes
+description: Fetches latest commit hash for each tweak repo to use as cache keys
+
+outputs:
+  theos:
+    description: Theos commit hash
+    value: ${{ steps.hashes.outputs.theos }}
+  ygs:
+    description: YouGroupSettings commit hash
+    value: ${{ steps.hashes.outputs.ygs }}
+
+runs:
+  using: composite
+  steps:
+    - name: Fetch commit hashes
+      id: hashes
+      shell: bash
+      run: |
+        get_hash() {
+          git ls-remote "https://github.com/$1.git" HEAD | cut -f1
+        }
+
+        echo "theos=$(get_hash theos/theos)"                                         >> $GITHUB_OUTPUT
+        echo "ygs=$(get_hash PoomSmart/YouGroupSettings)"                            >> $GITHUB_OUTPUT

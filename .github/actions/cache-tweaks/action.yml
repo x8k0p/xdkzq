@@ -1,0 +1,23 @@
+name: Cache Tweaks
+description: Caches built .deb files per tweak, keyed on commit hash + SDK version
+
+inputs:
+  sdk_version:
+    required: true
+  theos_commit:
+    required: true
+  ygs_commit:
+    required: true
+
+outputs:
+  cache_ygs_hit:           { value: "${{ steps.cache_ygs.outputs.cache-hit }}" }
+
+runs:
+  using: composite
+  steps:
+
+    - uses: actions/cache@v6
+      id: cache_ygs
+      with:
+        path: ${{ github.workspace }}/ygs.deb
+        key: ygs-${{ inputs.ygs_commit }}-sdk${{ inputs.sdk_version }}
