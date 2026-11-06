@@ -1,0 +1,107 @@
+name: _build_tweaks
+
+on:
+  workflow_call:
+    inputs:
+      opensafari:
+        type: boolean
+        required: false
+        default: true
+jobs:
+  build-tweaks:
+    name: _build_tweaks
+    runs-on: macos-latest
+    env:
+      HOMEBREW_NO_ENV_HINTS: 1
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+
+      - name: Install Dependencies
+        run: |
+          brew uninstall --ignore-dependencies bicep || true
+          brew untap aws/tap azure/bicep || true
+          brew install --quiet make ldid swiftlint dpkg meson ninja go
+
+      - name: Set PATH Environment Variables
+        run: |
+          echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
+          echo "THEOS=${{ github.workspace }}/theos" >> $GITHUB_ENV
+
+      - name: Get Commit Hashes
+        id: commit_hashes
+        uses: ./.github/actions/get-commit-hashes
+
+      - name: Cache Theos
+        id: theos
+        uses: ./.github/actions/cache-theos
+        with:
+          theos_commit: ${{ steps.commit_hashes.outputs.theos }}
+
+      - name: Download IOS SDK
+        if: steps.theos.outputs.cache-hit != 'true'
+        run: |
+          git clone --quiet --depth=1 -n --filter=tree:0 https://github.com/Tonwalter888/iOS-SDKs.git
+          cd iOS-SDKs
+          git sparse-checkout set --no-cone iPhoneOS18.6.sdk
+          git checkout
+          mv *.sdk $THEOS/sdks
+
+      - name: Install TBD
+        run: |
+          wget --quiet --no-verbose "https://github.com/inoahdev/tbd/releases/download/2.2/tbd-mac" -O /usr/local/bin/tbd
+          chmod +x /usr/local/bin/tbd
+
+      - name: Clone Open in YouTube (Safari Extension)
+        if: inputs.opensafari == true
+        run: |
+          git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/BillyCurtis/OpenYouTubeSafariExtension.git
+          cd OpenYouTubeSafariExtension
+          git sparse-checkout set --no-cone OpenYouTubeSafariExtension.appex
+          git checkout
+          mv *.appex ${{ github.workspace }}
+
+      - name: Clone YouTubeHeader
+        run: |
+          rm -rf $THEOS/include/YouTubeHeader
+          git clone --quiet --depth=1 https://github.com/PoomSmart/YouTubeHeader.git $THEOS/include/YouTubeHeader
+            rm -rf $THEOS/include/YTHeaders
+            cp -r "$THEOS/include/YouTubeHeader" "$THEOS/include/YTHeaders"
+
+      - name: Clone PSHeader
+        run: |
+          rm -rf $THEOS/include/PSHeader
+          git clone --quiet --depth=1 https://github.com/PoomSmart/PSHeader.git $THEOS/include/PSHeader
+
+      - name: Cache Tweaks
+        id: cache_tweaks
+        uses: ./.github/actions/cache-tweaks
+        with:
+          sdk_version: '18.6'
+          theos_commit: ${{ steps.commit_hashes.outputs.theos }}
+          ygs_commit: ${{ steps.commit_hashes.outputs.ygs }}
+
+      - name: Clone And Build YouPro
+        if: inputs.youpro == true
+        run: |
+          git clone --quiet --depth=1 https://github.com/mrdrvt99/YouPro.git
+          cd YouPro
+          chmod -R 755 .
+          dpkg-deb --root-owner-group -Zgzip --build . ../YouPro.deb
+
+      - name: Clone And Build YouGroupSettings
+        if: steps.cache_tweaks.outputs.cache_ygs_hit != 'true'
+        run: |
+          git clone --quiet --depth=1 https://github.com/PoomSmart/YouGroupSettings.git
+          cd YouGroupSettings && make clean package DEBUG=0 FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
+          mv packages/*.deb ${{ github.workspace }}/ygs.deb
+
+      - name: Upload Built Debs As Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: built-debs
+          path: |
+            *.deb
+            *.appex
+          if-no-files-found: ignore
+          retention-days: 1
